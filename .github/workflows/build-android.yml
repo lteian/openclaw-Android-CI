@@ -1,12 +1,59 @@
-name: Build Android APK
+name: Build Openclaw Android APK
 
 on:
   schedule:
     - cron: '0 */8 * * *'   # every 8 hours at minute 0
   workflow_dispatch:          # allow manual trigger
 
+env:
+  JAVA_VERSION: '21'          # 可在这里修改 JDK 版本
+
 jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      has-new-release: ${{ steps.check.outputs.has-new-release }}
+      release-version: ${{ steps.check.outputs.release-version }}
+      release-tag: ${{ steps.check.outputs.release-tag }}
+    steps:
+      - name: Checkout this CI repo
+        uses: actions/checkout@v4
+
+      - name: Check for new releases in openclaw
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # Get the latest release from openclaw/openclaw
+          LATEST_RELEASE=$(gh release list -R openclaw/openclaw --limit 1 --json tagName,name,isLatest --jq '.[0]' 2>/dev/null || echo "{}")
+          
+          if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" == "{}" ]; then
+            echo "has-new-release=false" >> $GITHUB_OUTPUT
+            echo "No releases found"
+            exit 0
+          fi
+          
+          RELEASE_TAG=$(echo "$LATEST_RELEASE" | jq -r '.tagName')
+          RELEASE_NAME=$(echo "$LATEST_RELEASE" | jq -r '.name')
+          
+          # Get last built release from file
+          LAST_BUILT_TAG=$(cat .lastrelease 2>/dev/null || echo "none")
+          
+          echo "Latest release: $RELEASE_TAG ($RELEASE_NAME)"
+          echo "Last built release: $LAST_BUILT_TAG"
+          
+          if [ "$LAST_BUILT_TAG" != "$RELEASE_TAG" ]; then
+            echo "has-new-release=true" >> $GITHUB_OUTPUT
+            echo "release-version=$RELEASE_NAME" >> $GITHUB_OUTPUT
+            echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+          else
+            echo "has-new-release=false" >> $GITHUB_OUTPUT
+            echo "Already built this release"
+          fi
+
   build:
+    needs: check-release
+    if: needs.check-release.outputs.has-new-release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this CI repo
@@ -14,18 +61,18 @@ jobs:
         with:
           path: ci-repo
 
-      - name: Checkout OpenClaw source
+      - name: Checkout OpenClaw source at latest release
         uses: actions/checkout@v4
         with:
           repository: openclaw/openclaw
           path: source
-          ref: main
+          ref: ${{ needs.check-release.outputs.release-tag }}
 
-      - name: Set up JDK 17
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v2
@@ -43,17 +90,17 @@ jobs:
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openclaw-debug-apk
+          name: openclaw-debug-apk-${{ needs.check-release.outputs.release-tag }}
           path: source/apps/android/app/build/outputs/apk/debug/*.apk
 
-      - name: Create GitHub Release (optional)
+      - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
-          tag_name: apk-${{ github.run_id }}
-          name: Android APK Build ${{ github.run_number }}
+          tag_name: apk-${{ needs.check-release.outputs.release-tag }}-${{ github.run_id }}
+          name: Android APK Build for ${{ needs.check-release.outputs.release-version }}
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -63,5 +110,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
-          tag_name: apk-${{ github.run_id }}
+          tag_name: apk-${{ needs.check-release.outputs.release-tag }}-${{ github.run_id }}
           files: source/apps/android/app/build/outputs/apk/debug/*.apk
+
+      - name: Update last built release record
+        working-directory: ci-repo
+        run: |
+          echo "${{ needs.check-release.outputs.release-tag }}" > .lastrelease
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .lastrelease
+          git commit -m "Update lastrelease record to ${{ needs.check-release.outputs.release-tag }} [skip ci]" || true
+          git push
