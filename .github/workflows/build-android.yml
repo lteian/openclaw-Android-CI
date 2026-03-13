@@ -61,7 +61,7 @@ jobs:
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           tag_name: apk-${{ github.run_id }}
           files: source/apps/android/app/build/outputs/apk/debug/*.apk
