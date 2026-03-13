@@ -85,7 +85,7 @@ jobs:
         working-directory: source/apps/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
