@@ -91,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openclaw-debug-apk-${{ needs.check-release.outputs.release-tag }}
-          path: source/apps/android/app/build/outputs/apk/debug/*.apk
+          path: source/apps/android/app/build/outputs/apk/**/*.apk
 
       - name: Create GitHub Release
         id: create_release
@@ -111,7 +111,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           tag_name: apk-${{ needs.check-release.outputs.release-tag }}-${{ github.run_id }}
-          files: source/apps/android/app/build/outputs/apk/debug/*.apk
+          files: source/apps/android/app/build/outputs/apk/**/*.apk
 
       - name: Update last built release record
         working-directory: ci-repo
